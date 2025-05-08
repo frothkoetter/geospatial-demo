@@ -467,7 +467,11 @@ This type of query is essential for:
 
 ## SQL Script Explanation: Geospatial Metadata Processing - Script: cdw-analyse/hive-metadata.SQL
 
-This script processes geospatial metadata from North Rhine-Westphalia's open geodata portal, transforming raw CSV data into an optimized Iceberg table format. Here's the high-level breakdown:
+This script processes geospatial metadata from North Rhine-Westphalia's open geodata portal, transforming raw CSV data into an optimized Iceberg table format.
+
+You have to copy manually the metafile into CDP accessable S3 Bucket und directory: /data/geospatial/nw/tile_metadata
+
+Here's the high-level breakdown:
 
 ### Raw Data Ingestion (Phase 1)
 - **Source**: CSV files from https://www.opengeodata.nrw.de (3D point cloud metadata)
