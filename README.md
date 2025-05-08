@@ -405,9 +405,9 @@ show functions like 'st%'
 ```
 Output must list available geospatial functions available for your SQL.
 
-st_aggr_convexhull
-st_aggr_union
-st_area
+|st_aggr_convexhull|
+|st_aggr_union |
+|st_area |
 ...
 
 
