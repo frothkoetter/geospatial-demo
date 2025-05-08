@@ -31,7 +31,7 @@ Create upfront the Iceberg table punktwolke - see   - run cdw/hive-punktwolke.sq
 
 ![](images/punktwolke-SQL.png)
 
-## NIFI Flow Processors 
+## NIFI Flow Processors
 
 ### 1. Data Retrieval
 - **3D-Messdaten Laserscanning - Paketierung: Einzelkacheln** (InvokeHTTP processor)
@@ -414,7 +414,7 @@ Output must list available geospatial functions available for your SQL.
 
 
 
-Run a spatial query.
+# Spatial Query Explanation: Point Cloud Analysis - Script: cdw-analyse/hive-geospatial.SQL
 
 ```sql
 WITH bounds AS (
@@ -433,3 +433,88 @@ JOIN bounds AS b
   ON ST_Contains(b.region_geom,
            ST_Point(lp.x, lp.y));
 ```
+
+This SQL query performs a spatial analysis on point cloud data (likely LiDAR data) within a specific geographic bounding box. The query **counts and analyzes points** that fall within a defined rectangular region, specifically focusing on:
+- Total point count
+- Ground-classified points (classification = 2)
+- Elevation statistics (min, max, average Z values)
+
+
+**Spatial Bounding Box Definition** (CTE named `bounds`):
+   ```sql
+   SELECT ST_GeomFromText('POLYGON((280000 5626000, 280000 5747500, 288500 5747500, 288500 5626000, 280000 5626000))') AS region_geom
+   ```
+   - Creates a polygon in UTM coordinates (likely EPSG:25832 for Germany)
+   - Defines a rectangular area ~8.5km wide (east-west) and ~121.5km tall (north-south)
+
+**Spatial Join Condition**:
+   ```sql
+   ON ST_Contains(b.region_geom, ST_Point(lp.x, lp.y))
+   ```
+   - Uses `ST_Contains` to filter points inside the bounding box
+   - Converts raw X/Y coordinates to spatial points with `ST_Point`
+
+**Point Cloud Metrics**:
+   - `COUNT(*)` - Total points in the area
+   - `COUNT(IF(classification = 2, 1, NULL))` - Count of ground points (LAS classification standard)
+   - `MIN(z)/MAX(z)/AVG(z)` - Elevation statistics
+
+This type of query is essential for:
+- Terrain modeling (using ground points)
+- Calculating vegetation height (canopy - ground)
+- Infrastructure planning
+- Flood risk analysis (via elevation stats)
+
+## SQL Script Explanation: Geospatial Metadata Processing - Script: cdw-analyse/hive-metadata.SQL
+
+This script processes geospatial metadata from North Rhine-Westphalia's open geodata portal, transforming raw CSV data into an optimized Iceberg table format. Here's the high-level breakdown:
+
+### Raw Data Ingestion (Phase 1)
+- **Source**: CSV files from https://www.opengeodata.nrw.de (3D point cloud metadata)
+- **External Table Creation**:
+  - Creates `tile_metadata` table pointing to S3 location `/data/geospatial/nw/tile_metadata`
+  - Handles German column names (Kachelname = tile name, Aktualitaet = currency date)
+  - Skips 7 header rows from the CSV (`skip.header.line.count="7"`)
+  - Uses semicolon delimiters (common in German data formats)
+
+### Data Curation (Phase 2)
+- **Iceberg Table Creation**:
+  - Creates `tile_metadata_ice` with enhanced schema:
+    - Adds default values for German state info (`Land = "Nordrhein-Westfalen"`)
+    - Includes ownership details (`Eigentuemer`)
+    - Standardizes versioning (`Version_Standard = "1.2"`)
+    - Documents point cloud classifications (`Punkteklassenbelegung`)
+  - Uses Iceberg format for advanced features (time travel, schema evolution)
+
+- **Data Transformation**:
+  - Appends `.laz` extension to tile names (LASzip format)
+  - Preserves original metadata columns while adding contextual defaults
+  - Converts raw CSV data into a production-ready format
+
+### Analytics (Phase 3)
+- **Cross-Table Analysis**:
+  - Joins metadata with `point_cloud_part` table (assumed to contain actual point cloud data)
+  - Aggregates point counts by:
+    - Geographic region (`land`)
+    - Source file (`source_file`)
+    - Geohash (spatial indexing)
+
+- **Query Patterns**:
+  - Simple metadata inspection (`SELECT * FROM tile_metadata_ice`)
+  - Spatial distribution analysis (geohash-based counts)
+
+### Key Technical Aspects
+**Data Lake Architecture**:
+   - Raw → Curated pipeline pattern
+   - External tables for raw data, managed tables for production
+
+**Geospatial Specifics**:
+   - Handles German coordinate reference systems (CRS)
+   - Manages point cloud resolution values (Aufloesung)
+   - Tracks data currency (Aktualitaet)
+
+**Performance Considerations**:
+   - Iceberg format enables efficient point cloud metadata queries
+   - Geohash aggregation supports spatial analytics
+
+This script represents a complete ETL pipeline for German governmental geospatial data, from raw ingestion to analytical-ready format.
