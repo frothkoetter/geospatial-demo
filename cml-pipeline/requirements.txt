@@ -1,0 +1,13 @@
+    scikit-learn
+    matplotlib 
+    pyarrow 
+    laspy
+    lazrs
+    geopandas 
+    Shapely 
+    boto3
+    geohash2
+    Pyproj
+    raz_client==1.0.2
+    apache-sedona==1.7.1
+    tqdm==4.67.1
