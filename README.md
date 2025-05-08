@@ -398,7 +398,21 @@ A quick plot show the result
 
 # Cloudera Data Warehouse
 
-Hive with Spatial Extensions available in PC CDW (check Sedona Extension)
+Hive with Spatial Extensions available in PC CDW (check ESRI Extension)
+
+```sql
+show functions like 'st%'
+```
+Output must list available geospatial functions available for your SQL.
+
+st_aggr_convexhull
+st_aggr_union
+st_area
+...
+
+
+
+Run a spatial query.
 
 ```sql
 WITH bounds AS (
