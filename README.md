@@ -31,6 +31,8 @@ Create upfront the Iceberg table punktwolke - see   - run cdw/hive-punktwolke.sq
 
 ![](images/punktwolke-SQL.png)
 
+## NIFI Flow Processors 
+
 ### 1. Data Retrieval
 - **3D-Messdaten Laserscanning - Paketierung: Einzelkacheln** (InvokeHTTP processor)
   - Makes a GET request to `https://www.opengeodata.nrw.de/produkte/geobasis/hm/3dm_l_las/3dm_l_las/`
