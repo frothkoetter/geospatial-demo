@@ -424,11 +424,9 @@ If you want **more partitions** (for better parallelism), you can:
 * Use a **bucket transform**, e.g. `bucket(32, geohash12)` for even partition sizes (not spatially aware, though).
 * Or combine geohash with `z` elevation or source tile if meaningful.
 
-Would you like help visualizing how many partitions you'd get from different `truncate` lengths on your dataset?
 
 
-
-#CML - Geospatial Data Pipeline : LAZ-to-Iceberg-geohash12.py **Coordinate Transformation and Geohashing**
+# CML - Geospatial Data Pipeline : LAZ-to-Iceberg-geohash12.py **Coordinate Transformation and Geohashing**
 
 ```python
 # Set up projection transformer
