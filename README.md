@@ -343,86 +343,6 @@ spark.stop()
 | Insert into Hive                        | Populates Hive table with point cloud data                          |
 | (Optional) `process_las_to_arrow_spark` | Presumably more optimized path with Arrow, but not implemented here |
 
-Would you like help implementing `process_las_to_arrow_spark` or adding geospatial features like coordinate transformation or geohash partitioning?
-
-
-Great question — the behavior you're observing is due to how **Apache Iceberg** handles **partitioning** — especially **hidden partitions** like `truncate(6, geohash12)` — and how it maps those partitions to **physical data files**.
-
----
-
-## 🔍 What does `PARTITIONED BY(truncate(6, geohash12))` mean?
-
-Iceberg's `truncate` transform:
-
-```sql
-truncate(N, column)
-```
-
-creates partition values by **truncating strings** to their first `N` characters. In this case:
-
-```sql
-truncate(6, geohash12)
-```
-
-* Truncates the `geohash12` column to its **first 6 characters**.
-* For example:
-
-  * `geohash12 = "u33dc6g3pxzr"`
-  * `truncate(6, geohash12)` → `"u33dc6"`
-
----
-
-## 📁 Why only 6 files created?
-
-When you run:
-
-```sql
-INSERT INTO geospatial.punktwolke_geohash12 SELECT * FROM ...
-```
-
-Apache Iceberg:
-
-1. Evaluates the `truncate(6, geohash12)` for each row.
-2. Groups the data into **partitions** by the result of that truncation.
-3. Writes **one file per partition** (by default).
-
-So if your dataset has **only 6 unique 6-character geohash prefixes**, Iceberg creates only **6 physical data files**, one per partition.
-
----
-
-## ✅ Hidden Partitioning
-
-Iceberg **does not expose** the `truncate(6, geohash12)` column as a physical column in the table:
-
-* This is what **"hidden partitioning"** means.
-* You can query it like:
-
-  ```sql
-  SELECT COUNT(*) FROM punktwolke_geohash12 WHERE geohash12 LIKE 'u33dc6%'
-  ```
-* But you **don’t need to manage** partition columns manually like in Hive.
-
-This is unlike traditional Hive tables where partition columns must be **explicit and manually added** to your schema.
-
----
-
-## 📌 Summary
-
-| Concept                  | Explanation                                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------- |
-| `truncate(6, geohash12)` | Groups data by the first 6 characters of geohash                                             |
-| Hidden partitioning      | Iceberg partitions data under-the-hood without exposing partition fields in the schema       |
-| 6 files                  | Only 6 unique `geohash12[0:6]` prefixes in your data, so only 6 partitions/files are created |
-
----
-
-### Optional Tip:
-
-If you want **more partitions** (for better parallelism), you can:
-
-* Use `truncate(7, geohash12)` or `truncate(8, geohash12)` to increase granularity.
-* Use a **bucket transform**, e.g. `bucket(32, geohash12)` for even partition sizes (not spatially aware, though).
-* Or combine geohash with `z` elevation or source tile if meaningful.
 
 
 
@@ -516,6 +436,82 @@ PARTITIONED BY(truncate(6,geohash12))
 | `CREATE TABLE ... PARTITIONED BY geohash12` | Enables spatially aware querying and optimization in Iceberg |
 
 Let me know if you’d like to visualize these geohashes on a map or explore alternate partition strategies.
+
+
+## 🔍 What does `PARTITIONED BY(truncate(6, geohash12))` mean?
+
+Iceberg's `truncate` transform:
+
+```sql
+truncate(N, column)
+```
+
+creates partition values by **truncating strings** to their first `N` characters. In this case:
+
+```sql
+truncate(6, geohash12)
+```
+
+* Truncates the `geohash12` column to its **first 6 characters**.
+* For example:
+
+  * `geohash12 = "u33dc6g3pxzr"`
+  * `truncate(6, geohash12)` → `"u33dc6"`
+
+---
+
+## 📁 Why only 6 files created?
+
+When you run:
+
+```sql
+INSERT INTO geospatial.punktwolke_geohash12 SELECT * FROM ...
+```
+
+Apache Iceberg:
+
+1. Evaluates the `truncate(6, geohash12)` for each row.
+2. Groups the data into **partitions** by the result of that truncation.
+3. Writes **one file per partition** (by default).
+
+So if your dataset has **only 6 unique 6-character geohash prefixes**, Iceberg creates only **6 physical data files**, one per partition.
+
+---
+
+## ✅ Hidden Partitioning
+
+Iceberg **does not expose** the `truncate(6, geohash12)` column as a physical column in the table:
+
+* This is what **"hidden partitioning"** means.
+* You can query it like:
+
+  ```sql
+  SELECT COUNT(*) FROM punktwolke_geohash12 WHERE geohash12 LIKE 'u33dc6%'
+  ```
+* But you **don’t need to manage** partition columns manually like in Hive.
+
+This is unlike traditional Hive tables where partition columns must be **explicit and manually added** to your schema.
+
+---
+
+## 📌 Summary
+
+| Concept                  | Explanation                                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `truncate(6, geohash12)` | Groups data by the first 6 characters of geohash                                             |
+| Hidden partitioning      | Iceberg partitions data under-the-hood without exposing partition fields in the schema       |
+| 6 files                  | Only 6 unique `geohash12[0:6]` prefixes in your data, so only 6 partitions/files are created |
+
+---
+
+### Optional Tip:
+
+If you want **more partitions** (for better parallelism), you can:
+
+* Use `truncate(7, geohash12)` or `truncate(8, geohash12)` to increase granularity.
+* Use a **bucket transform**, e.g. `bucket(32, geohash12)` for even partition sizes (not spatially aware, though).
+* Or combine geohash with `z` elevation or source tile if meaningful.
+
 
 
 # Cloudera AI - Sedona Examples : ApacheSedonaSQL.ipynb ApacheSedonaCore.ipynb
