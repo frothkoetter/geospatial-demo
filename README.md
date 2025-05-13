@@ -211,138 +211,313 @@ This is a clean, efficient NiFi 2 processor for LiDAR preprocessing pipelines, c
 
 Would you like a diagram or sample input/output to go with this explanation?
 
+
 # CML - Geospatial Data Pipeline : LAZ-to-Iceberg.py
 
 This Python script is a geospatial data pipeline that performs the following end-to-end operations:
 
-This Python script is a **geospatial data pipeline** that performs the following **end-to-end operations**:
+TThis Python code performs a **complete workflow for processing a LAS/LAZ point cloud file**, converting it to a Spark DataFrame, and then storing it in an **Iceberg-backed Hive table** using **Cloudera Machine Learning (CML)**. Here's a breakdown of what each part does:
 
 ---
 
-## 🧭 **High-Level Goal**
-
-Download **LAZ files** (compressed LiDAR point clouds) from **AWS S3**, extract LiDAR point attributes, **transform the data**, and **store it in a Hive table (Iceberg format)** using **Apache Spark**.
-
----
-
-## 🧱 **High-Level Workflow**
-
-1. **Connect to S3** and find `.laz` files matching a pattern.
-2. **Download and read** the `.laz` files using `laspy`.
-3. **Extract point data** (x, y, z, intensity, etc.).
-4. **Convert coordinates** (UTM to lat/lon using `pyproj`).
-5. **Encode geohashes** (optional spatial indexing).
-6. **Create Spark DataFrames**, append `source_file` as metadata.
-7. **Write data into Hive (Iceberg) tables** partitioned by file.
-8. **Repeat for all files**, then stop Spark session.
-
----
-
-## 🔍 **Step-by-Step Breakdown**
-
-### 1. 📦 **Imports and Requirements**
-
-* Uses `laspy`, `boto3`, `pyproj`, `geohash2`, `Spark`, and `cmldata` (Cloudera ML SDK).
-* `cudf` and GPU acceleration are commented out but hinted at.
-
----
-
-### 2. 🌍 **Coordinate Transformation**
+## 📦 **Imports**
 
 ```python
-transformer = pyproj.Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
+import laspy, os, numpy as np, pyarrow as pa, pyproj, pandas as pd, cml.data_v1 as cmldata, geohash2
+from pyspark.sql.types import ...
+from pyspark.sql.functions import ...
 ```
 
-* Converts from UTM zone 32N (EPSG:25832) to WGS84 lat/lon (EPSG:4326).
+* `laspy`: Reads LAZ/LAS point cloud files.
+* `numpy`: Used for structured arrays to hold point data.
+* `pyarrow`: (Imported but unused here) often used for converting to Arrow format.
+* `pyproj`: (Unused in this snippet) typically for coordinate projections.
+* `geohash2`: For spatial indexing with geohashes (also unused here).
+* `cml.data_v1`: Cloudera’s data connector to Spark.
+* `pyspark`: Used for defining schema, DataFrame operations, and SQL.
 
 ---
 
-### 3. 📡 **S3 Setup**
-
-* Lists objects in the bucket `goes-se-sandbox` under prefix `data/geospatial/nw/`.
-* Filters for filenames matching: `*3dm_32_283*.laz`.
-
----
-
-### 4. 📥 **Download Matching LAZ Files**
+## 📌 **Function: `process_las_file()`**
 
 ```python
-for file_key in tqdm(laz_files):
-    s3_client.get_object(Bucket=..., Key=...)
+def process_las_file(file_path):
+    ...
 ```
 
-* Each file is downloaded (as binary) from S3.
-* Intended to be written locally (commented out).
-* Tracks file size and logs downloads.
+* **Opens** a LAS/LAZ file using `laspy`.
+* **Reads all points** and extracts: `x, y, z, intensity, return_number, classification`.
+* Packs them into a **structured NumPy array** with defined types (`f8 = float64`, `i4 = int32`).
+* Returns the point cloud data as a NumPy array (efficient and compact).
 
 ---
 
-### 5. 💡 **Spark Setup**
+## 🚀 **Spark Initialization**
 
 ```python
-spark.sql("CREATE DATABASE IF NOT EXISTS geospatial")
+from pyspark import SparkContext
+SparkContext.setSystemProperty(...)
 ```
 
-* Configures Spark via Cloudera ML (`cmldata.get_connection(...)`).
-* Creates Hive database and Iceberg table:
+* Customizes Spark environment for resource control:
 
-  * Schema: `x, y, z, intensity, return_num, classification`
-  * Partitioned by: `source_file`
-  * Format: `Parquet + Iceberg`, compression: `Snappy`
-
----
-
-### 6. 🧪 **Processing Each LAZ File**
+  * 2 cores
+  * 8 GB executor memory
+  * Max RPC message size = 512 MB
 
 ```python
-las = laspy.open(io.BytesIO(binary_data)).read()
+CONNECTION_NAME = "se-aws-edl"
+conn = cmldata.get_connection(CONNECTION_NAME)
+spark = conn.get_spark_session()
 ```
 
-* Reads each `.laz` file using `laspy`.
-* Extracts individual LiDAR attributes:
-
-  * `x`, `y`, `z`, `intensity`, `return_number`, `classification`
-* Builds a list of points.
+* Gets Spark session from Cloudera Machine Learning (via configured connection).
 
 ---
 
-### 7. 🔄 **Create Spark DataFrame**
-
-```python
-df = spark.createDataFrame(point_data, schema=schema)
-```
-
-* Builds a DataFrame with extracted points.
-* Adds `source_file` as a new column.
-* Inserts data into Hive (Iceberg) table.
-
----
-
-### 8. 🧊 **Iceberg Table Insert**
+## 🗃️ **Hive Table Setup with Iceberg**
 
 ```sql
-INSERT INTO TABLE geospatial.point_cloud SELECT * FROM temp_points
+CREATE TABLE IF NOT EXISTS geospatial.punktwolke ...
 ```
 
-* Data written in partitions based on file.
-* Ensures scalability, spatial filtering, and easy downstream querying.
+Creates a table `geospatial.punktwolke` with:
+
+* Columns for point data.
+* Partitioning **by `source_file`** — but **note**: `source_file` is **not in the schema** here, so this may fail or be ineffective unless added later.
+* Uses **Iceberg** and **Snappy compression**.
+* Marks the table as `spatial=true` (custom metadata, likely for query engines or catalogs to treat it as geospatial).
 
 ---
 
-### 🧪 Optional/Unfinished Features
+## 📂 **File Processing and DataFrame Creation**
 
-* **Geohashing**: Logic to convert lat/lon to geohash is present but not actively used.
+```python
+laz_file = "/home/cdsw/...laz"
+points = process_las_file(laz_file)
+```
+
+* Processes a `.laz` file and extracts structured point cloud data.
+
+```python
+schema = StructType([...])
+df = spark.createDataFrame([...], schema=schema)
+```
+
+* Defines a Spark schema for the structured point cloud.
+* Converts the NumPy array to a Spark DataFrame.
 
 ---
 
+## 🧠 **Temporary View + Hive Insert**
 
-## ✅ **Final Output**
+```python
+df.createOrReplaceTempView("temp_points")
+spark.sql("INSERT INTO TABLE geospatial.punktwolke SELECT * FROM temp_points").show()
+```
 
-* All matched `.laz` files from S3 are processed.
-* Their point data is converted into structured Spark rows.
-* Data is stored in a **partitioned, queryable Iceberg Hive table** in the `geospatial` database.
+* Registers the DataFrame as a temporary view.
+* Executes SQL to insert data into the Iceberg Hive table.
+
+> `show()` at the end displays the result of the insert query, though it’s not meaningful for INSERTs.
+
+
+## 🧼 **Cleanup**
+
+```python
+spark.stop()
+```
+
+* Gracefully stops the Spark session.
 
 ---
+
+## ✅ **Summary**
+
+| Component                               | Purpose                                                             |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| `process_las_file()`                    | Parses a LAS/LAZ file into structured NumPy array                   |
+| Spark setup                             | Configures Spark executor resources                                 |
+| Hive table creation                     | Sets up Iceberg table in `geospatial` DB                            |
+| Spark DataFrame                         | Converts LAS data into a Spark-friendly format                      |
+| Insert into Hive                        | Populates Hive table with point cloud data                          |
+| (Optional) `process_las_to_arrow_spark` | Presumably more optimized path with Arrow, but not implemented here |
+
+Would you like help implementing `process_las_to_arrow_spark` or adding geospatial features like coordinate transformation or geohash partitioning?
+
+
+Great question — the behavior you're observing is due to how **Apache Iceberg** handles **partitioning** — especially **hidden partitions** like `truncate(6, geohash12)` — and how it maps those partitions to **physical data files**.
+
+---
+
+## 🔍 What does `PARTITIONED BY(truncate(6, geohash12))` mean?
+
+Iceberg's `truncate` transform:
+
+```sql
+truncate(N, column)
+```
+
+creates partition values by **truncating strings** to their first `N` characters. In this case:
+
+```sql
+truncate(6, geohash12)
+```
+
+* Truncates the `geohash12` column to its **first 6 characters**.
+* For example:
+
+  * `geohash12 = "u33dc6g3pxzr"`
+  * `truncate(6, geohash12)` → `"u33dc6"`
+
+---
+
+## 📁 Why only 6 files created?
+
+When you run:
+
+```sql
+INSERT INTO geospatial.punktwolke_geohash12 SELECT * FROM ...
+```
+
+Apache Iceberg:
+
+1. Evaluates the `truncate(6, geohash12)` for each row.
+2. Groups the data into **partitions** by the result of that truncation.
+3. Writes **one file per partition** (by default).
+
+So if your dataset has **only 6 unique 6-character geohash prefixes**, Iceberg creates only **6 physical data files**, one per partition.
+
+---
+
+## ✅ Hidden Partitioning
+
+Iceberg **does not expose** the `truncate(6, geohash12)` column as a physical column in the table:
+
+* This is what **"hidden partitioning"** means.
+* You can query it like:
+
+  ```sql
+  SELECT COUNT(*) FROM punktwolke_geohash12 WHERE geohash12 LIKE 'u33dc6%'
+  ```
+* But you **don’t need to manage** partition columns manually like in Hive.
+
+This is unlike traditional Hive tables where partition columns must be **explicit and manually added** to your schema.
+
+---
+
+## 📌 Summary
+
+| Concept                  | Explanation                                                                                  |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `truncate(6, geohash12)` | Groups data by the first 6 characters of geohash                                             |
+| Hidden partitioning      | Iceberg partitions data under-the-hood without exposing partition fields in the schema       |
+| 6 files                  | Only 6 unique `geohash12[0:6]` prefixes in your data, so only 6 partitions/files are created |
+
+---
+
+### Optional Tip:
+
+If you want **more partitions** (for better parallelism), you can:
+
+* Use `truncate(7, geohash12)` or `truncate(8, geohash12)` to increase granularity.
+* Use a **bucket transform**, e.g. `bucket(32, geohash12)` for even partition sizes (not spatially aware, though).
+* Or combine geohash with `z` elevation or source tile if meaningful.
+
+Would you like help visualizing how many partitions you'd get from different `truncate` lengths on your dataset?
+
+
+
+#CML - Geospatial Data Pipeline : LAZ-to-Iceberg-geohash12.py **Coordinate Transformation and Geohashing**
+
+```python
+# Set up projection transformer
+# EPSG 25832 = UTM zone 32N (used in Central Europe, including Germany)
+# EPSG 4326 = WGS84 lat/lon (used in GPS, mapping APIs)
+transformer = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
+```
+
+* This sets up a **coordinate transformer** using `pyproj.Transformer` that converts from UTM (EPSG:25832) to standard GPS lat/lon (EPSG:4326).
+* `always_xy=True` ensures consistent input order (x=Easting, y=Northing).
+
+---
+
+### 🌍 **User-Defined Function (UDF) for Geohash Calculation**
+
+```python
+def projected_to_geohash(x, y):
+    import geohash2
+    try:
+        lon, lat = transformer.transform(x, y)  # Note: always_xy=True makes it x, y -> lon, lat
+        return geohash2.encode(lat, lon, precision=12)
+    except:
+        return None
+```
+
+* Converts each `(x, y)` point from projected UTM to `(lat, lon)`.
+* Then uses the `geohash2` package to compute a **12-character geohash**.
+
+  * Geohash is a compact **string representation of geographic location**, useful for spatial partitioning.
+* Returns `None` on any failure (e.g., invalid inputs).
+
+---
+
+### 🧠 **Register as a Spark UDF and Use**
+
+```python
+geohash_udf = udf(projected_to_geohash, StringType())
+```
+
+* Registers the function as a **Spark UDF** (user-defined function) returning `StringType`.
+
+```python
+df = df.withColumn("source_file", lit(filename))
+df = df.withColumn("geohash12", geohash_udf(df["x"], df["y"]))
+```
+
+* Adds a `source_file` column (metadata).
+* Adds a new column `geohash12` to the DataFrame by applying the UDF to each row's `x` and `y`.
+
+---
+
+### 🧊 **Hive Table Creation with Iceberg + Partitioning**
+
+```sql
+CREATE TABLE IF NOT EXISTS geospatial.punktwolke_geohash12 (
+    x DOUBLE,
+    y DOUBLE,
+    z DOUBLE,
+    intensity INT,
+    return_num INT,
+    classification INT,
+    source_file STRING,
+    geohash12 STRING
+)
+USING ICEBERG
+PARTITIONED BY(truncate(6,geohash12))
+```
+
+* Defines an **Iceberg table** named `punktwolke_geohash12` in the `geospatial` database.
+* The table includes all point cloud fields, the `source_file`, and the new `geohash12` column.
+* It uses **Iceberg’s spatial-friendly partitioning**:
+
+  * `PARTITIONED BY(truncate(6, geohash12))` groups records by the **first 6 characters** of the geohash.
+
+    * This balances **spatial locality** with **partition size** (12-character geohash is very precise; 6-character is regional).
+
+---
+
+### 🔎 Summary
+
+| Part                                        | What It Does                                                 |
+| ------------------------------------------- | ------------------------------------------------------------ |
+| `Transformer.from_crs`                      | Converts coordinates from UTM (EPSG:25832) to WGS84 lat/lon  |
+| `projected_to_geohash`                      | Transforms and geohashes each point                          |
+| `geohash_udf`                               | Registers the transformation as a Spark function             |
+| `withColumn("geohash12", ...)`              | Adds geohash to every row in your point cloud                |
+| `CREATE TABLE ... PARTITIONED BY geohash12` | Enables spatially aware querying and optimization in Iceberg |
+
+Let me know if you’d like to visualize these geohashes on a map or explore alternate partition strategies.
 
 
 # Cloudera AI - Sedona Examples : ApacheSedonaSQL.ipynb ApacheSedonaCore.ipynb
@@ -350,6 +525,7 @@ INSERT INTO TABLE geospatial.point_cloud SELECT * FROM temp_points
 These examples are from Apache Sedona documentation
 
 https://github.com/apache/sedona/tree/master/docs/usecases
+
 
 # Cloudera AI - NVIDIA Rapids rapids-gpu.ipynb
 Nvidia cuML, cuDF and cuSpatial
