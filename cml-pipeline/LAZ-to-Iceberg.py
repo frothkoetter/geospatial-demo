@@ -71,8 +71,9 @@ TBLPROPERTIES (
 )
 """)
 
+# use local laz file 
+# use !hdfs dfs -copyToLocal from S3 or HDFS
 laz_file = "/home/cdsw/cml-pipeline/data/3dm_32_292_5629_1_nw.laz"
-
 
 # Process the file
 points = process_las_file(laz_file)
@@ -96,8 +97,6 @@ df = spark.createDataFrame(
 
 df.createOrReplaceTempView("temp_points")
 spark.sql("INSERT INTO TABLE geospatial.punktwolke SELECT * FROM temp_points").show()
-
-df = process_las_to_arrow_spark(laz_file, spark)
 
 # EoF
 spark.stop()
