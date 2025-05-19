@@ -14,7 +14,7 @@ class LazToCsvProcessor(FlowFileTransform):
         implements = ['org.apache.nifi.python.processor.FlowFileTransform']
 
     class ProcessorDetails:
-        version = '0.0.6'
+        version = '0.0.7'
         description = 'Reads a .laz file from FlowFile content and converts it to CSV.'
         dependencies = ['laspy', 'lazrs', 'numpy']
 
@@ -77,23 +77,26 @@ class LazToCsvProcessor(FlowFileTransform):
                     for i in range(0, len(las), chunk_records):
                         end = i + chunk_records
 
-                        # Create a structured NumPy array
-                        structured_array = np.array(
-                            list(zip(
-                                las.x[i:end], las.y[i:end], las.z[i:end],
-                                las.intensity[i:end],
-                                las.return_number[i:end],
-                                las.classification[i:end]
-                            )),
-                            dtype=[
-                                ('x', 'f8'), ('y', 'f8'), ('z', 'f8'),
-                                ('intensity', 'i4'), ('return_num', 'i4'),
-                                ('classification', 'i4')
-                            ]
-                        )
+                        # === Your structured array logic here ===
+                        x = las.x[i:end]
+                        y = las.y[i:end]
+                        z = las.z[i:end]
+                        intensity = las.intensity[i:end]
+                        return_num = las.return_number[i:end]
+                        classification = las.classification[i:end]
 
-                        # Write comma-separated lines
-                        for row in structured_array:
+                        points = np.array([
+                            (xv, yv, zv, inten, ret, cls)
+                            for xv, yv, zv, inten, ret, cls in zip(x, y, z, intensity, return_num, classification)
+                        ], dtype=[
+                            ('x', 'f8'), ('y', 'f8'), ('z', 'f8'),
+                            ('intensity', 'i4'), ('return_num', 'i4'),
+                            ('classification', 'i4')
+                        ])
+                        # ========================================
+
+                        # Write CSV lines
+                        for row in points:
                             output.write(f"{row['x']},{row['y']},{row['z']},{row['intensity']},{row['return_num']},{row['classification']}\n")
 
             os.remove(tmp_file_path)
